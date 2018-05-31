@@ -119,6 +119,9 @@ namespace Wiper
 
         public override void DeInitialize()
         {
+            DecayCTimer.Dispose();
+            WipeCTimer.Dispose();
+            Check = false;
             Fougerite.Hooks.OnCommand -= OnCommand;
             Fougerite.Hooks.OnPlayerConnected -= OnPlayerConnected;
             Fougerite.Hooks.OnServerSaved -= OnServerSaved;
