@@ -21,6 +21,7 @@ namespace Wiper
         public int WipeCheckTimer = 30;
         public bool Broadcast = true;
         public string UserDataPath = "\\rust_server_Data\\userdata\\";
+        internal bool Check = false;
 
         public Timer WipeCTimer;
         public Timer DecayCTimer;
@@ -42,7 +43,7 @@ namespace Wiper
 
         public override Version Version
         {
-            get { return new Version("1.0"); }
+            get { return new Version("1.1"); }
         }
 
         public override void Initialize()
@@ -74,14 +75,7 @@ namespace Wiper
             if (!File.Exists(Path.Combine(ModuleFolder, "Players.ini")))
             {
                 File.Create(Path.Combine(ModuleFolder, "Players.ini")).Dispose();
-                Logger.Log("[Wiper] Detecting Empty file... Cycling through all the objects and adding today's date to everyone.");
-                foreach (var x in World.GetWorld().Entities)
-                {
-                    if (!CollectedIDs.ContainsKey(x.UOwnerID))
-                    {
-                        CollectedIDs[x.UOwnerID] = DateTime.Today;
-                    }
-                }
+                Check = true;
             }
             else
             {
@@ -95,11 +89,13 @@ namespace Wiper
                         {
                             ulong id = ulong.Parse(x);
                             string date = players.GetSetting("Objects", x);
-                            CollectedIDs[id] = DateTime.Parse(date);
+                            // dd/MM/yyyy
+                            string[] spl = date.Split('/');
+                            CollectedIDs[id] = new DateTime(int.Parse(spl[2]), int.Parse(spl[1]), int.Parse(spl[0]));
                         }
-                        catch
+                        catch (Exception ex)
                         {
-                            Logger.LogError("[Wiper] Failed to parse datetime for " + x);
+                            Logger.LogError("[Wiper] Failed to parse datetime for " + x + " Error: " + ex);
                         }
                     }
                 }
@@ -110,6 +106,7 @@ namespace Wiper
             Fougerite.Hooks.OnCommand += OnCommand;
             Fougerite.Hooks.OnPlayerConnected += OnPlayerConnected;
             Fougerite.Hooks.OnServerSaved += OnServerSaved;
+            Fougerite.Hooks.OnServerLoaded += OnServerLoaded;
             
             WipeCTimer = new Timer(WipeCheckTimer * 60000);
             WipeCTimer.Elapsed += new ElapsedEventHandler(CheckWipeableObjects);
@@ -125,6 +122,7 @@ namespace Wiper
             Fougerite.Hooks.OnCommand -= OnCommand;
             Fougerite.Hooks.OnPlayerConnected -= OnPlayerConnected;
             Fougerite.Hooks.OnServerSaved -= OnServerSaved;
+            Fougerite.Hooks.OnServerLoaded -= OnServerLoaded;
         }
         
         internal void DecayObjects(object sender, ElapsedEventArgs e)
@@ -149,6 +147,21 @@ namespace Wiper
             WipeCTimer = new Timer(WipeCheckTimer * 60000);
             WipeCTimer.Elapsed += new ElapsedEventHandler(CheckWipeableObjects);
             WipeCTimer.Start();
+        }
+        
+        public void OnServerLoaded()
+        {
+            if (Check)
+            {
+                Logger.Log("[Wiper] Detecting Empty file... Cycling through all the objects and adding today's date to everyone.");
+                foreach (var x in World.GetWorld().Entities)
+                {
+                    if (!CollectedIDs.ContainsKey(x.UOwnerID))
+                    {
+                        CollectedIDs[x.UOwnerID] = DateTime.Today;
+                    }
+                }
+            }
         }
 
         public void LoadDecayList()
