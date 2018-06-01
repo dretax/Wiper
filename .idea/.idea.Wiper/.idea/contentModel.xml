@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ContentModelStore">
-    <e p="C:\Users\DreTaX\.Rider2017.3\system\resharper-host\local\Transient\ReSharperHost\v11\SolutionCaches\_Wiper.-79938743.00" t="ExcludeRecursive" />
+    <e p="C:\Users\DreTaX\.Rider2018.1\system\resharper-host\local\Transient\ReSharperHost\v12\SolutionCaches\_Wiper.-79938743.00" t="ExcludeRecursive" />
     <e p="C:\Users\DreTaX\Documents\Visual Studio 2015\Projects\Wiper" t="IncludeFlat">
       <e p="packages" t="ExcludeRecursive" />
       <e p="Wiper" t="IncludeRecursive">
@@ -12,6 +12,7 @@
         </e>
         <e p="Wiper.cs" t="Include" />
         <e p="Wiper.csproj" t="IncludeRecursive" />
+        <e p="WiperHandler.cs" t="Include" />
       </e>
       <e p="Wiper.sln" t="IncludeFlat" />
     </e>

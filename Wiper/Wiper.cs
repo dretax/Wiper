@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Timers;
 using Fougerite;
+using UnityEngine;
 
 namespace Wiper
 {
@@ -22,9 +23,8 @@ namespace Wiper
         public bool Broadcast = true;
         public string UserDataPath = "\\rust_server_Data\\userdata\\";
         internal bool Check = false;
-
-        public Timer WipeCTimer;
-        public Timer DecayCTimer;
+        private static Wiper _inst;
+        internal GameObject GameO;
 
         public override string Name
         {
@@ -43,11 +43,17 @@ namespace Wiper
 
         public override Version Version
         {
-            get { return new Version("1.1"); }
+            get { return new Version("1.1.1"); }
+        }
+
+        public static Wiper Instance
+        {
+            get { return _inst; }
         }
 
         public override void Initialize()
         {
+            _inst = this;
             if (!File.Exists(Path.Combine(ModuleFolder, "Settings.ini")))
             {
                 File.Create(Path.Combine(ModuleFolder, "Settings.ini")).Dispose();
@@ -107,49 +113,23 @@ namespace Wiper
             Fougerite.Hooks.OnPlayerConnected += OnPlayerConnected;
             Fougerite.Hooks.OnServerSaved += OnServerSaved;
             Fougerite.Hooks.OnServerLoaded += OnServerLoaded;
-            
-            WipeCTimer = new Timer(WipeCheckTimer * 60000);
-            WipeCTimer.Elapsed += new ElapsedEventHandler(CheckWipeableObjects);
-            WipeCTimer.Start();
-            
-            DecayCTimer = new Timer(DecayTimer * 60000);
-            DecayCTimer.Elapsed += new ElapsedEventHandler(DecayObjects);
-            DecayCTimer.Start();
+            GameO = new GameObject();
+            GameO.AddComponent<WiperHandler>();
+            UnityEngine.Object.DontDestroyOnLoad(GameO);
         }
 
         public override void DeInitialize()
         {
-            DecayCTimer.Dispose();
-            WipeCTimer.Dispose();
+            if (GameO != null)
+            {
+                UnityEngine.Object.Destroy(GameO);
+                GameO = null;
+            }
             Check = false;
             Fougerite.Hooks.OnCommand -= OnCommand;
             Fougerite.Hooks.OnPlayerConnected -= OnPlayerConnected;
             Fougerite.Hooks.OnServerSaved -= OnServerSaved;
             Fougerite.Hooks.OnServerLoaded -= OnServerLoaded;
-        }
-        
-        internal void DecayObjects(object sender, ElapsedEventArgs e)
-        {
-            DecayCTimer.Dispose();
-            if (UseDecay)
-            {
-                ForceDecay();
-            }
-            DecayCTimer = new Timer(DecayTimer * 60000);
-            DecayCTimer.Elapsed += new ElapsedEventHandler(DecayObjects);
-            DecayCTimer.Start();
-        }
-        
-        internal void CheckWipeableObjects(object sender, ElapsedEventArgs e)
-        {
-            WipeCTimer.Dispose();
-            if (UseDayLimit)
-            {
-                LaunchCheck();
-            }
-            WipeCTimer = new Timer(WipeCheckTimer * 60000);
-            WipeCTimer.Elapsed += new ElapsedEventHandler(CheckWipeableObjects);
-            WipeCTimer.Start();
         }
         
         public void OnServerLoaded()
@@ -229,8 +209,12 @@ namespace Wiper
         }
         
 
-        public int LaunchCheck()
+        public int[] LaunchCheck()
         {
+            int[] array = new int[2];
+            array[0] = 0;
+            array[1] = 0;
+            
             List<ulong> Collected = new List<ulong>();
             foreach (var x in CollectedIDs.Keys)
             {
@@ -245,7 +229,7 @@ namespace Wiper
             }
             if (Collected.Count == 0)
             {
-                return 0;
+                return array;
             }
             foreach (var x in Collected)
             {
@@ -265,18 +249,18 @@ namespace Wiper
                         dir.Delete(true);
                     }
                     di.Delete();
+                    array[1] = array[1] + 1;
                 }
             }
-            int objs = 0;
             foreach (var x in World.GetWorld().Entities)
             {
                 if (Collected.Contains(x.UOwnerID))
                 {
                     x.Destroy();
-                    objs++;
+                    array[0] = array[0] + 1;
                 }
             }
-            return objs;
+            return array;
         }
 
         public void OnServerSaved()
@@ -321,14 +305,14 @@ namespace Wiper
                     {
                         Server.GetServer().BroadcastFrom("Wiper", "Checking for Wipeable unused objects....");
                     }
-                    int del = LaunchCheck();
+                    int[] obj = LaunchCheck();
                     if (Broadcast)
                     {
-                        Server.GetServer().BroadcastFrom("Wiper", "Wiped: " + del + " objects.");
+                        Server.GetServer().BroadcastFrom("Wiper", "Wiped " + obj[0] + " amount of objects, and " + obj[1] + " amount of user data.");
                     }
                     else
                     {
-                        player.MessageFrom("Wiper", "Wiped: " + del + " objects.");
+                        player.MessageFrom("Wiper", "Wiped " + obj[0] + " amount of objects, and " + obj[1] + " amount of user data.");
                     }
                 }
             }
