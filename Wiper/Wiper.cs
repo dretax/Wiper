@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Timers;
 using Fougerite;
 using UnityEngine;
@@ -43,7 +44,7 @@ namespace Wiper
 
         public override Version Version
         {
-            get { return new Version("1.1.1"); }
+            get { return new Version("1.1.2"); }
         }
 
         public static Wiper Instance
@@ -195,75 +196,106 @@ namespace Wiper
 
         public void ForceDecay()
         {
-            foreach (var x in World.GetWorld().Entities)
+            List<Entity> data = World.GetWorld().Entities;
+            
+            Thread t = new Thread(() =>
             {
-                if (EntityList.ContainsKey(x.Name))
+                foreach (var x in data)
                 {
-                    x.Health = x.Health - EntityList[x.Name];
-                    if (x.Health <= 0)
+                    if (EntityList.ContainsKey(x.Name))
                     {
-                        x.Destroy();
+                        x.Health = x.Health - EntityList[x.Name];
+                        if (x.Health <= 0)
+                        {
+                            x.Destroy();
+                        }
                     }
                 }
-            }
+            });
+            t.IsBackground = true;
+            t.Start();
         }
         
 
-        public int[] LaunchCheck()
+        public void LaunchCheck(Fougerite.Player player = null)
         {
-            int[] array = new int[2];
-            array[0] = 0;
-            array[1] = 0;
-            
-            List<ulong> Collected = new List<ulong>();
-            foreach (var x in CollectedIDs.Keys)
+            List<Entity> data = World.GetWorld().Entities;
+
+            Thread t = new Thread(() =>
             {
-                if (WList.Contains(x))
+                int[] array = new int[2];
+                array[0] = 0;
+                array[1] = 0;
+
+                List<ulong> Collected = new List<ulong>();
+                foreach (var x in CollectedIDs.Keys)
                 {
-                    continue;
-                }
-                if ((DateTime.Today - CollectedIDs[x]).TotalDays > MaxDays)
-                {
-                    Collected.Add(x);
-                }
-            }
-            if (Collected.Count == 0)
-            {
-                return array;
-            }
-            foreach (var x in Collected)
-            {
-                if (CollectedIDs.ContainsKey(x)) // Just to be sure
-                {
-                    CollectedIDs.Remove(x);
-                }
-                System.IO.DirectoryInfo di = new DirectoryInfo(Path.Combine(Util.GetRootFolder(), UserDataPath + "\\" + x));
-                if (di.Exists)
-                {
-                    foreach (FileInfo file in di.GetFiles())
+                    if (WList.Contains(x))
                     {
-                        file.Delete();
+                        continue;
                     }
-                    foreach (DirectoryInfo dir in di.GetDirectories())
+
+                    if ((DateTime.Today - CollectedIDs[x]).TotalDays > MaxDays)
                     {
-                        dir.Delete(true);
+                        Collected.Add(x);
                     }
-                    di.Delete();
-                    array[1] = array[1] + 1;
                 }
-            }
-            foreach (var x in World.GetWorld().Entities)
-            {
-                if (Collected.Contains(x.UOwnerID))
+
+                if (Collected.Count == 0)
                 {
-                    x.Destroy();
-                    array[0] = array[0] + 1;
+                    return;
                 }
-            }
-            return array;
+
+                foreach (var x in Collected)
+                {
+                    if (CollectedIDs.ContainsKey(x)) // Just to be sure
+                    {
+                        CollectedIDs.Remove(x);
+                    }
+
+                    System.IO.DirectoryInfo di =
+                        new DirectoryInfo(Path.Combine(Util.GetRootFolder(), UserDataPath + "\\" + x));
+                    if (di.Exists)
+                    {
+                        foreach (FileInfo file in di.GetFiles())
+                        {
+                            file.Delete();
+                        }
+
+                        foreach (DirectoryInfo dir in di.GetDirectories())
+                        {
+                            dir.Delete(true);
+                        }
+
+                        di.Delete();
+                        array[1] = array[1] + 1;
+                    }
+                }
+
+                foreach (var x in data)
+                {
+                    if (Collected.Contains(x.UOwnerID))
+                    {
+                        x.Destroy();
+                        array[0] = array[0] + 1;
+                    }
+                }
+
+                if (Broadcast)
+                {
+                    Server.GetServer().BroadcastFrom("Wiper",
+                        "Wiped " + array[0] + " amount of objects, and " + array[1] + " amount of user data.");
+                }
+                else if (player != null)
+                {
+                    player.MessageFrom("Wiper", "Wiped " + array[0] + " amount of objects, and " + array[1] + " amount of user data.");
+                }
+            });
+            t.IsBackground = true;
+            t.Start();
         }
 
-        public void OnServerSaved()
+        public void OnServerSaved(int amount, double seconds)
         {
             Logger.LogDebug("[Wiper] Saving Player Data. Count: " + CollectedIDs.Keys.Count);
             File.WriteAllText(Path.Combine(ModuleFolder, "Players.ini"), string.Empty);
@@ -305,15 +337,7 @@ namespace Wiper
                     {
                         Server.GetServer().BroadcastFrom("Wiper", "Checking for Wipeable unused objects....");
                     }
-                    int[] obj = LaunchCheck();
-                    if (Broadcast)
-                    {
-                        Server.GetServer().BroadcastFrom("Wiper", "Wiped " + obj[0] + " amount of objects, and " + obj[1] + " amount of user data.");
-                    }
-                    else
-                    {
-                        player.MessageFrom("Wiper", "Wiped " + obj[0] + " amount of objects, and " + obj[1] + " amount of user data.");
-                    }
+                    LaunchCheck(player);
                 }
             }
             else if (cmd == "wipereload")
