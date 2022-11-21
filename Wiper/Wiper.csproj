@@ -31,13 +31,13 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Assembly-CSharp">
-      <HintPath>E:\Users\DreTaX\Documents\Visual Studio 2013\Projects\FougeriteProject\bin\Assembly-CSharp.dll</HintPath>
+      <HintPath>..\..\..\..\Visual Studio 2013\FougeriteProject\bin\Assembly-CSharp.dll</HintPath>
     </Reference>
-    <Reference Include="Facepunch.ID">
-      <HintPath>E:\Users\DreTaX\Documents\Visual Studio 2013\Projects\FougeriteProject\bin\Facepunch.ID.dll</HintPath>
+    <Reference Include="Facepunch.MeshBatch">
+      <HintPath>..\..\..\..\Visual Studio 2013\FougeriteProject\Fougerite\References\PatchedRustDlls\Facepunch.MeshBatch.dll</HintPath>
     </Reference>
     <Reference Include="Fougerite">
-      <HintPath>E:\Users\DreTaX\Documents\Visual Studio 2013\Projects\FougeriteProject\bin\Fougerite.dll</HintPath>
+      <HintPath>..\..\..\..\Visual Studio 2013\FougeriteProject\bin\Fougerite.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
@@ -46,16 +46,21 @@
     <Reference Include="System.Data" />
     <Reference Include="System.Xml" />
     <Reference Include="uLink">
-      <HintPath>E:\Users\DreTaX\Documents\Visual Studio 2013\Projects\FougeriteProject\bin\uLink.dll</HintPath>
+      <HintPath>..\..\..\..\Visual Studio 2013\FougeriteProject\bin\uLink.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine">
-      <HintPath>E:\Users\DreTaX\Documents\Visual Studio 2013\Projects\FougeriteProject\bin\UnityEngine.dll</HintPath>
+      <HintPath>..\..\..\..\Visual Studio 2013\FougeriteProject\bin\UnityEngine.dll</HintPath>
     </Reference>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Wiper.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="WiperHandler.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="Health.ini">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

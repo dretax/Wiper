@@ -4,16 +4,18 @@ using System.IO;
 using System.Threading;
 using System.Timers;
 using Fougerite;
+using Fougerite.Concurrent;
+using Fougerite.Tools;
 using UnityEngine;
 
 namespace Wiper
 {
-    public class Wiper : Fougerite.Module
+    public class Wiper : Module
     {
         public IniParser Settings;
         public IniParser WhiteList;
 
-        public Dictionary<ulong, DateTime> CollectedIDs = new Dictionary<ulong, DateTime>();
+        public ConcurrentDictionary<ulong, DateTime> CollectedIDs = new ConcurrentDictionary<ulong, DateTime>();
         public Dictionary<string, float> EntityList = new Dictionary<string, float>(); 
         public List<ulong> WList = new List<ulong>(); 
         public bool UseDayLimit = true;
@@ -44,7 +46,7 @@ namespace Wiper
 
         public override Version Version
         {
-            get { return new Version("1.1.2"); }
+            get { return new Version("1.1.3"); }
         }
 
         public static Wiper Instance
@@ -90,7 +92,7 @@ namespace Wiper
                 string[] enumm = players.EnumSection("Objects");
                 if (enumm.Length > 0)
                 {
-                    foreach (var x in enumm)
+                    foreach (string x in enumm)
                     {
                         try
                         {
@@ -106,14 +108,18 @@ namespace Wiper
                         }
                     }
                 }
+                else
+                {
+                    Check = true;
+                }
             }
             ReloadConfig();
 
             LoadDecayList();
-            Fougerite.Hooks.OnCommand += OnCommand;
-            Fougerite.Hooks.OnPlayerConnected += OnPlayerConnected;
-            Fougerite.Hooks.OnServerSaved += OnServerSaved;
-            Fougerite.Hooks.OnServerLoaded += OnServerLoaded;
+            Hooks.OnCommand += OnCommand;
+            Hooks.OnPlayerConnected += OnPlayerConnected;
+            Hooks.OnServerSaved += OnServerSaved;
+            Hooks.OnServerLoaded += OnServerLoaded;
             GameO = new GameObject();
             GameO.AddComponent<WiperHandler>();
             UnityEngine.Object.DontDestroyOnLoad(GameO);
@@ -127,10 +133,10 @@ namespace Wiper
                 GameO = null;
             }
             Check = false;
-            Fougerite.Hooks.OnCommand -= OnCommand;
-            Fougerite.Hooks.OnPlayerConnected -= OnPlayerConnected;
-            Fougerite.Hooks.OnServerSaved -= OnServerSaved;
-            Fougerite.Hooks.OnServerLoaded -= OnServerLoaded;
+            Hooks.OnCommand -= OnCommand;
+            Hooks.OnPlayerConnected -= OnPlayerConnected;
+            Hooks.OnServerSaved -= OnServerSaved;
+            Hooks.OnServerLoaded -= OnServerLoaded;
         }
         
         public void OnServerLoaded()
@@ -138,13 +144,18 @@ namespace Wiper
             if (Check)
             {
                 Logger.Log("[Wiper] Detecting Empty file... Cycling through all the objects and adding today's date to everyone.");
-                foreach (var x in World.GetWorld().Entities)
+                IniParser players = new IniParser(Path.Combine(ModuleFolder, "Players.ini"));
+                foreach (Entity x in World.GetWorld().Entities)
                 {
                     if (!CollectedIDs.ContainsKey(x.UOwnerID))
                     {
                         CollectedIDs[x.UOwnerID] = DateTime.Today;
+                        players.AddSetting("Objects", x.ToString(), CollectedIDs[x.UOwnerID].ToString("dd/MM/yyyy"));
                     }
                 }
+                players.Save();
+                
+                Logger.Log("[Wiper] Done.");
             }
         }
 
@@ -188,7 +199,7 @@ namespace Wiper
                 EntityList["SleepingBagA"] = float.Parse(ini.GetSetting("Damage", "SleepingBagA"));
                 EntityList["SingleBed"] = float.Parse(ini.GetSetting("Damage", "SingleBed"));
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 Logger.LogError("[Wiper] Failed to read Health.ini: " + ex);
             }
@@ -196,15 +207,14 @@ namespace Wiper
 
         public void ForceDecay()
         {
-            List<Entity> data = World.GetWorld().Entities;
-            
             Thread t = new Thread(() =>
             {
-                foreach (var x in data)
+                List<Entity> data = World.GetWorld().Entities;
+                foreach (Entity x in data)
                 {
                     if (EntityList.ContainsKey(x.Name))
                     {
-                        x.Health = x.Health - EntityList[x.Name];
+                        x.Health -= EntityList[x.Name];
                         if (x.Health <= 0)
                         {
                             x.Destroy();
@@ -219,16 +229,15 @@ namespace Wiper
 
         public void LaunchCheck(Fougerite.Player player = null)
         {
-            List<Entity> data = World.GetWorld().Entities;
-
             Thread t = new Thread(() =>
             {
+                List<Entity> data = World.GetWorld().Entities;
                 int[] array = new int[2];
                 array[0] = 0;
                 array[1] = 0;
 
                 List<ulong> Collected = new List<ulong>();
-                foreach (var x in CollectedIDs.Keys)
+                foreach (ulong x in CollectedIDs.Keys)
                 {
                     if (WList.Contains(x))
                     {
@@ -246,15 +255,14 @@ namespace Wiper
                     return;
                 }
 
-                foreach (var x in Collected)
+                foreach (ulong x in Collected)
                 {
                     if (CollectedIDs.ContainsKey(x)) // Just to be sure
                     {
-                        CollectedIDs.Remove(x);
+                        CollectedIDs.TryRemove(x);
                     }
 
-                    System.IO.DirectoryInfo di =
-                        new DirectoryInfo(Path.Combine(Util.GetRootFolder(), UserDataPath + "\\" + x));
+                    DirectoryInfo di = new DirectoryInfo(Util.GetRootFolder() + UserDataPath + "\\" + x);
                     if (di.Exists)
                     {
                         foreach (FileInfo file in di.GetFiles())
@@ -268,16 +276,16 @@ namespace Wiper
                         }
 
                         di.Delete();
-                        array[1] = array[1] + 1;
+                        array[1] += 1;
                     }
                 }
 
-                foreach (var x in data)
+                foreach (Entity x in data)
                 {
                     if (Collected.Contains(x.UOwnerID))
                     {
                         x.Destroy();
-                        array[0] = array[0] + 1;
+                        array[0] += 1;
                     }
                 }
 
@@ -300,7 +308,7 @@ namespace Wiper
             Logger.LogDebug("[Wiper] Saving Player Data. Count: " + CollectedIDs.Keys.Count);
             File.WriteAllText(Path.Combine(ModuleFolder, "Players.ini"), string.Empty);
             IniParser players = new IniParser(Path.Combine(ModuleFolder, "Players.ini"));
-            foreach (var x in CollectedIDs.Keys)
+            foreach (ulong x in CollectedIDs.Keys)
             {
                 players.AddSetting("Objects", x.ToString(), CollectedIDs[x].ToString("dd/MM/yyyy"));
             }
@@ -315,164 +323,82 @@ namespace Wiper
 
         public void OnCommand(Fougerite.Player player, string cmd, string[] args)
         {
-            if (cmd == "wipehelp")
+            switch (cmd)
             {
-                if (player.Admin) // || player.Moderator ?
+                case "wipehelp":
                 {
-                    player.MessageFrom("Wiper", "Wiper Commands:");
-                    player.MessageFrom("Wiper", "/wipecheck - Checks for inactive objects");
-                    player.MessageFrom("Wiper", "/wipereload - Reloads config.");
-                    player.MessageFrom("Wiper", "/wipeid playerid - Wipes All the objects of the ID");
-                    player.MessageFrom("Wiper", "/wipebarr - Deletes all barricades");
-                    player.MessageFrom("Wiper", "/wipecampf - Deletes all camp fires");
-                    player.MessageFrom("Wiper", "/wipeforced - Force a decay");
-                    player.MessageFrom("Wiper", "/wipewl id - Adds ID to wipe whitelist.");
-                }
-            }
-            else if (cmd == "wipecheck")
-            {
-                if (player.Admin)
-                {
-                    if (Broadcast)
+                    if (player.Admin) // || player.Moderator ?
                     {
-                        Server.GetServer().BroadcastFrom("Wiper", "Checking for Wipeable unused objects....");
-                    }
-                    LaunchCheck(player);
-                }
-            }
-            else if (cmd == "wipereload")
-            {
-                if (player.Admin)
-                {
-                    bool b = ReloadConfig();
-                    player.MessageFrom("Wiper", b ? "Done." : "Failed to reload config!");
-                }
-            }
-            else if (cmd == "wipeid")
-            {
-                if (player.Admin)
-                {
-                    if (args.Length == 0)
-                    {
+                        player.MessageFrom("Wiper", "Wiper Commands:");
+                        player.MessageFrom("Wiper", "/wipecheck - Checks for inactive objects");
+                        player.MessageFrom("Wiper", "/wipereload - Reloads config.");
                         player.MessageFrom("Wiper", "/wipeid playerid - Wipes All the objects of the ID");
-                        return;
-                    }
-                    string id = args[0];
-                    ulong uid;
-                    bool b = ulong.TryParse(id, out uid);
-                    if (!b)
-                    {
-                        player.MessageFrom("Wiper", "/wipeid playerid - Wipes All the objects of the ID");
-                        return;
-                    }
-                    if (CollectedIDs.ContainsKey(uid))
-                    {
-                        CollectedIDs.Remove(uid);
-                    }
-                    int c = 0;
-                    foreach (var x in World.GetWorld().Entities)
-                    {
-                        if (x.UOwnerID == uid)
-                        {
-                            x.Destroy();
-                            c++;
-                        }
-                    }
-                    System.IO.DirectoryInfo di = new DirectoryInfo(Path.Combine(Util.GetRootFolder(), UserDataPath + "\\" + id));
-                    if (di.Exists)
-                    {
-                        foreach (FileInfo file in di.GetFiles())
-                        {
-                            file.Delete();
-                        }
-                        foreach (DirectoryInfo dir in di.GetDirectories())
-                        {
-                            dir.Delete(true);
-                        }
-                        di.Delete();
-                    }
-                    player.MessageFrom("Wiper", "Wiped: " + c + " objects.");
-                }
-            }
-            else if (cmd == "wipebarr")
-            {
-                if (player.Admin)
-                {
-                    int c = 0;
-                    foreach (var x in World.GetWorld().Entities)
-                    {
-                        if (x.Name.ToLower().Contains("barricade"))
-                        {
-                            x.Destroy();
-                            c++;
-                        }
-                    }
-                    player.MessageFrom("Wiper", "Wiped: " + c + " objects.");
-                }
-            }
-            else if (cmd == "wipecampf")
-            {
-                if (player.Admin)
-                {
-                    int c = 0;
-                    foreach (var x in World.GetWorld().Entities)
-                    {
-                        if (x.Name.ToLower().Contains("camp"))
-                        {
-                            x.Destroy();
-                            c++;
-                        }
-                    }
-                    player.MessageFrom("Wiper", "Wiped: " + c + " objects.");
-                }
-            }
-            else if (cmd == "wipewl")
-            {
-                if (player.Admin)
-                {
-                    if (args.Length == 0)
-                    {
-                        player.MessageFrom("Wiper", "/wipewl playerid - Adds playerid to the whitelist.");
-                        return;
-                    }
-                    string id = args[0];
-                    ulong uid;
-                    bool b = ulong.TryParse(id, out uid);
-                    if (!b)
-                    {
-                        player.MessageFrom("Wiper", "/wipewl playerid - Adds playerid to the whitelist.");
-                        return;
+                        player.MessageFrom("Wiper", "/wipebarr - Deletes all barricades");
+                        player.MessageFrom("Wiper", "/wipecampf - Deletes all camp fires");
+                        player.MessageFrom("Wiper", "/wipeforced - Force a decay");
+                        player.MessageFrom("Wiper", "/wipewl id - Adds ID to wipe whitelist.");
                     }
 
-                    if (WList.Contains(uid))
-                    {
-                        player.MessageFrom("Wiper", "ID is already added!");
-                        return;
-                    }
-
-                    WhiteList.AddSetting("WhiteList", id, "1");
-                    WhiteList.Save();
-                    player.MessageFrom("Wiper", "Added!");
+                    break;
                 }
-            }
-            else if (cmd == "wipeall")
-            {
-                if (player.Admin)
+                case "wipecheck":
                 {
-                    List<string> list = new List<string>();
-                    int c = 0;
-                    foreach (var x in World.GetWorld().Entities)
+                    if (player.Admin)
                     {
-                        if (!list.Contains(x.OwnerID))
+                        if (Broadcast)
                         {
-                            list.Add(x.OwnerID);
+                            Server.GetServer().BroadcastFrom("Wiper", "Checking for Wipeable unused objects....");
                         }
-                        x.Destroy();
+                        LaunchCheck(player);
                     }
 
-                    foreach (var id in list)
+                    break;
+                }
+                case "wipereload":
+                {
+                    if (player.Admin)
                     {
-                        System.IO.DirectoryInfo di = new DirectoryInfo(Path.Combine(Util.GetRootFolder(), UserDataPath + "\\" + id));
+                        bool b = ReloadConfig();
+                        player.MessageFrom("Wiper", b ? "Done." : "Failed to reload config!");
+                    }
+
+                    break;
+                }
+                case "wipeid":
+                {
+                    if (player.Admin)
+                    {
+                        if (args.Length == 0)
+                        {
+                            player.MessageFrom("Wiper", "/wipeid playerid - Wipes All the objects of the ID");
+                            return;
+                        }
+                        
+                        string id = args[0];
+                        ulong uid;
+                        bool b = ulong.TryParse(id, out uid);
+                        if (!b)
+                        {
+                            player.MessageFrom("Wiper", "/wipeid playerid - Wipes All the objects of the ID");
+                            return;
+                        }
+                        
+                        if (CollectedIDs.ContainsKey(uid))
+                        {
+                            CollectedIDs.TryRemove(uid);
+                        }
+                        
+                        int c = 0;
+                        foreach (Entity x in World.GetWorld().Entities)
+                        {
+                            if (x.UOwnerID == uid)
+                            {
+                                x.Destroy();
+                                c++;
+                            }
+                        }
+                        
+                        DirectoryInfo di = new DirectoryInfo(Util.GetRootFolder() + UserDataPath + "\\" + id);
                         if (di.Exists)
                         {
                             foreach (FileInfo file in di.GetFiles())
@@ -485,8 +411,114 @@ namespace Wiper
                             }
                             di.Delete();
                         }
+                        player.MessageFrom("Wiper", "Wiped: " + c + " objects.");
                     }
-                    player.MessageFrom("Wiper", "Wiped: " + c + " objects.");
+
+                    break;
+                }
+                case "wipebarr":
+                {
+                    if (player.Admin)
+                    {
+                        int c = 0;
+                        foreach (Entity x in World.GetWorld().Entities)
+                        {
+                            if (x.Name.ToLower().Contains("barricade"))
+                            {
+                                x.Destroy();
+                                c++;
+                            }
+                        }
+                        player.MessageFrom("Wiper", "Wiped: " + c + " objects.");
+                    }
+
+                    break;
+                }
+                case "wipecampf":
+                {
+                    if (player.Admin)
+                    {
+                        int c = 0;
+                        foreach (Entity x in World.GetWorld().Entities)
+                        {
+                            if (x.Name.ToLower().Contains("camp"))
+                            {
+                                x.Destroy();
+                                c++;
+                            }
+                        }
+                        player.MessageFrom("Wiper", "Wiped: " + c + " objects.");
+                    }
+
+                    break;
+                }
+                case "wipewl":
+                {
+                    if (player.Admin)
+                    {
+                        if (args.Length == 0)
+                        {
+                            player.MessageFrom("Wiper", "/wipewl playerid - Adds playerid to the whitelist.");
+                            return;
+                        }
+                        
+                        string id = args[0];
+                        ulong uid;
+                        bool b = ulong.TryParse(id, out uid);
+                        if (!b)
+                        {
+                            player.MessageFrom("Wiper", "/wipewl playerid - Adds playerid to the whitelist.");
+                            return;
+                        }
+
+                        if (WList.Contains(uid))
+                        {
+                            player.MessageFrom("Wiper", "ID is already added!");
+                            return;
+                        }
+
+                        WhiteList.AddSetting("WhiteList", id, "1");
+                        WhiteList.Save();
+                        player.MessageFrom("Wiper", "Added!");
+                    }
+
+                    break;
+                }
+                case "wipeall":
+                {
+                    if (player.Admin)
+                    {
+                        List<string> list = new List<string>();
+                        int c = 0;
+                        foreach (Entity x in World.GetWorld().Entities)
+                        {
+                            if (!list.Contains(x.OwnerID))
+                            {
+                                list.Add(x.OwnerID);
+                            }
+                            x.Destroy();
+                        }
+
+                        foreach (string id in list)
+                        {
+                            DirectoryInfo di = new DirectoryInfo(Util.GetRootFolder() + UserDataPath + "\\" + id);
+                            if (di.Exists)
+                            {
+                                foreach (FileInfo file in di.GetFiles())
+                                {
+                                    file.Delete();
+                                }
+                                foreach (DirectoryInfo dir in di.GetDirectories())
+                                {
+                                    dir.Delete(true);
+                                }
+                                di.Delete();
+                            }
+                        }
+                        player.MessageFrom("Wiper", "Wiped: " + c + " objects.");
+                    }
+
+                    break;
                 }
             }
         }
@@ -517,7 +549,7 @@ namespace Wiper
             {
                 File.Create(Path.Combine(ModuleFolder, "Players.ini")).Dispose();
                 CollectedIDs.Clear();
-                foreach (var x in Server.GetServer().Players)
+                foreach (Fougerite.Player x in Server.GetServer().Players)
                 {
                     CollectedIDs[x.UID] = DateTime.Today;
                 }
@@ -537,7 +569,7 @@ namespace Wiper
             }
             catch (Exception ex)
             {
-                Fougerite.Logger.LogError("[Wiper] Failed to read config, possible wrong value somewhere! Ex: " + ex);
+                Logger.LogError("[Wiper] Failed to read config, possible wrong value somewhere! Ex: " + ex);
                 return false;
             }
             LoadDecayList();
@@ -547,7 +579,7 @@ namespace Wiper
             string[] enumm = WhiteList.EnumSection("WhiteList");
             if (enumm.Length > 0)
             {
-                foreach (var x in enumm)
+                foreach (string x in enumm)
                 {
                     try
                     {
