@@ -1,11 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Threading;
-using System.Timers;
 using Fougerite;
 using Fougerite.Concurrent;
-using Fougerite.Tools;
 using UnityEngine;
 
 namespace Wiper
@@ -104,7 +101,7 @@ namespace Wiper
                         }
                         catch (Exception ex)
                         {
-                            Logger.LogError("[Wiper] Failed to parse datetime for " + x + " Error: " + ex);
+                            Logger.LogError($"[Wiper] Failed to parse datetime for {x} Error: {ex}");
                         }
                     }
                 }
@@ -201,111 +198,102 @@ namespace Wiper
             }
             catch (Exception ex)
             {
-                Logger.LogError("[Wiper] Failed to read Health.ini: " + ex);
+                Logger.LogError($"[Wiper] Failed to read Health.ini: {ex}");
             }
         }
 
         public void ForceDecay()
         {
-            Thread t = new Thread(() =>
+            List<Entity> data = World.GetWorld().Entities;
+            foreach (Entity x in data)
             {
-                List<Entity> data = World.GetWorld().Entities;
-                foreach (Entity x in data)
+                if (EntityList.ContainsKey(x.Name))
                 {
-                    if (EntityList.ContainsKey(x.Name))
+                    x.Health -= EntityList[x.Name];
+                    if (x.Health <= 0)
                     {
-                        x.Health -= EntityList[x.Name];
-                        if (x.Health <= 0)
-                        {
-                            x.Destroy();
-                        }
+                        x.Destroy();
                     }
                 }
-            });
-            t.IsBackground = true;
-            t.Start();
+            }
         }
         
 
         public void LaunchCheck(Fougerite.Player player = null)
         {
-            Thread t = new Thread(() =>
+            List<Entity> data = World.GetWorld().Entities;
+            int[] array = new int[2];
+            array[0] = 0;
+            array[1] = 0;
+
+            List<ulong> Collected = new List<ulong>();
+            foreach (ulong x in CollectedIDs.Keys)
             {
-                List<Entity> data = World.GetWorld().Entities;
-                int[] array = new int[2];
-                array[0] = 0;
-                array[1] = 0;
-
-                List<ulong> Collected = new List<ulong>();
-                foreach (ulong x in CollectedIDs.Keys)
+                if (WList.Contains(x))
                 {
-                    if (WList.Contains(x))
+                    continue;
+                }
+
+                if ((DateTime.Today - CollectedIDs[x]).TotalDays > MaxDays)
+                {
+                    Collected.Add(x);
+                }
+            }
+
+            if (Collected.Count == 0)
+            {
+                return;
+            }
+
+            foreach (ulong x in Collected)
+            {
+                if (CollectedIDs.ContainsKey(x)) // Just to be sure
+                {
+                    CollectedIDs.TryRemove(x);
+                }
+
+                DirectoryInfo di = new DirectoryInfo($"{Util.GetRootFolder()}{UserDataPath}\\{x}");
+                if (di.Exists)
+                {
+                    foreach (FileInfo file in di.GetFiles())
                     {
-                        continue;
+                        file.Delete();
                     }
 
-                    if ((DateTime.Today - CollectedIDs[x]).TotalDays > MaxDays)
+                    foreach (DirectoryInfo dir in di.GetDirectories())
                     {
-                        Collected.Add(x);
-                    }
-                }
-
-                if (Collected.Count == 0)
-                {
-                    return;
-                }
-
-                foreach (ulong x in Collected)
-                {
-                    if (CollectedIDs.ContainsKey(x)) // Just to be sure
-                    {
-                        CollectedIDs.TryRemove(x);
+                        dir.Delete(true);
                     }
 
-                    DirectoryInfo di = new DirectoryInfo(Util.GetRootFolder() + UserDataPath + "\\" + x);
-                    if (di.Exists)
-                    {
-                        foreach (FileInfo file in di.GetFiles())
-                        {
-                            file.Delete();
-                        }
-
-                        foreach (DirectoryInfo dir in di.GetDirectories())
-                        {
-                            dir.Delete(true);
-                        }
-
-                        di.Delete();
-                        array[1] += 1;
-                    }
+                    di.Delete();
+                    array[1] += 1;
                 }
+            }
 
-                foreach (Entity x in data)
+            foreach (Entity x in data)
+            {
+                if (Collected.Contains(x.UOwnerID))
                 {
-                    if (Collected.Contains(x.UOwnerID))
-                    {
-                        x.Destroy();
-                        array[0] += 1;
-                    }
+                    x.Destroy();
+                    array[0] += 1;
                 }
+            }
 
-                if (Broadcast)
-                {
-                    Server.GetServer().BroadcastFrom("Wiper",
-                        "Wiped " + array[0] + " amount of objects, and " + array[1] + " amount of user data.");
-                }
-                else if (player != null)
-                {
-                    player.MessageFrom("Wiper", "Wiped " + array[0] + " amount of objects, and " + array[1] + " amount of user data.");
-                }
-            });
-            t.IsBackground = true;
-            t.Start();
+            if (Broadcast)
+            {
+                Server.GetServer().BroadcastFrom("Wiper",
+                    $"Wiped {array[0]} amount of objects, and {array[1]} amount of user data.");
+            }
+            else if (player != null)
+            {
+                player.MessageFrom("Wiper",
+                    $"Wiped {array[0]} amount of objects, and {array[1]} amount of user data.");
+            }
         }
 
         public void OnServerSaved(int amount, double seconds)
         {
-            Logger.LogDebug("[Wiper] Saving Player Data. Count: " + CollectedIDs.Keys.Count);
+            Logger.LogDebug($"[Wiper] Saving Player Data. Count: {CollectedIDs.Keys.Count}");
             File.WriteAllText(Path.Combine(ModuleFolder, "Players.ini"), string.Empty);
             IniParser players = new IniParser(Path.Combine(ModuleFolder, "Players.ini"));
             foreach (ulong x in CollectedIDs.Keys)
@@ -398,7 +386,7 @@ namespace Wiper
                             }
                         }
                         
-                        DirectoryInfo di = new DirectoryInfo(Util.GetRootFolder() + UserDataPath + "\\" + id);
+                        DirectoryInfo di = new DirectoryInfo($"{Util.GetRootFolder()}{UserDataPath}\\{id}");
                         if (di.Exists)
                         {
                             foreach (FileInfo file in di.GetFiles())
@@ -411,7 +399,7 @@ namespace Wiper
                             }
                             di.Delete();
                         }
-                        player.MessageFrom("Wiper", "Wiped: " + c + " objects.");
+                        player.MessageFrom("Wiper", $"Wiped: {c} objects.");
                     }
 
                     break;
@@ -429,7 +417,7 @@ namespace Wiper
                                 c++;
                             }
                         }
-                        player.MessageFrom("Wiper", "Wiped: " + c + " objects.");
+                        player.MessageFrom("Wiper", $"Wiped: {c} objects.");
                     }
 
                     break;
@@ -447,7 +435,7 @@ namespace Wiper
                                 c++;
                             }
                         }
-                        player.MessageFrom("Wiper", "Wiped: " + c + " objects.");
+                        player.MessageFrom("Wiper", $"Wiped: {c} objects.");
                     }
 
                     break;
@@ -501,7 +489,7 @@ namespace Wiper
 
                         foreach (string id in list)
                         {
-                            DirectoryInfo di = new DirectoryInfo(Util.GetRootFolder() + UserDataPath + "\\" + id);
+                            DirectoryInfo di = new DirectoryInfo($"{Util.GetRootFolder()}{UserDataPath}\\{id}");
                             if (di.Exists)
                             {
                                 foreach (FileInfo file in di.GetFiles())
@@ -515,7 +503,7 @@ namespace Wiper
                                 di.Delete();
                             }
                         }
-                        player.MessageFrom("Wiper", "Wiped: " + c + " objects.");
+                        player.MessageFrom("Wiper", $"Wiped: {c} objects.");
                     }
 
                     break;
@@ -569,7 +557,7 @@ namespace Wiper
             }
             catch (Exception ex)
             {
-                Logger.LogError("[Wiper] Failed to read config, possible wrong value somewhere! Ex: " + ex);
+                Logger.LogError($"[Wiper] Failed to read config, possible wrong value somewhere! Ex: {ex}");
                 return false;
             }
             LoadDecayList();
@@ -588,7 +576,7 @@ namespace Wiper
                     }
                     catch
                     {
-                        Logger.LogError("[Wiper] Failed to parse whitelist for " + x);
+                        Logger.LogError($"[Wiper] Failed to parse whitelist for {x}");
                         return false;
                     }
                 }

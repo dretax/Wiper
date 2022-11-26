@@ -14,25 +14,28 @@ namespace Wiper
 
         private void StartWipeBackgroundWorker()
         {
-            CheckWipeableObjects();
+            BackgroundWorker backgroundWorker = new BackgroundWorker();
+            backgroundWorker.DoWork += CheckWipeableObjects;
+            backgroundWorker.RunWorkerAsync();
         }
 
         private void StartDecayBackgroundWorker()
         {
-            DecayObjects();
+            BackgroundWorker backgroundWorker = new BackgroundWorker();
+            backgroundWorker.DoWork += DecayObjects;
+            backgroundWorker.RunWorkerAsync();
         }
         
-        private void DecayObjects()
+        private void DecayObjects(object sender, DoWorkEventArgs doWorkEventArgs)
         {
             if (Wiper.Instance.UseDecay)
             {
-                Loom.QueueOnMainThread(() => { Wiper.Instance.ForceDecay(); });
                 Wiper.Instance.ForceDecay();
                 Invoke(nameof(StartDecayBackgroundWorker), Wiper.Instance.DecayTimer * 60);
             }
         }
         
-        private void CheckWipeableObjects()
+        private void CheckWipeableObjects(object sender, DoWorkEventArgs doWorkEventArgs)
         {
             if (Wiper.Instance.UseDayLimit)
             {
@@ -42,7 +45,7 @@ namespace Wiper
                     Server.GetServer().BroadcastFrom("Wiper", "Server is checking for wipeable objects...");
                 }
 
-                Loom.QueueOnMainThread(() => { Wiper.Instance.LaunchCheck(); });
+                Wiper.Instance.LaunchCheck();
 
                 Invoke(nameof(StartWipeBackgroundWorker), Wiper.Instance.WipeCheckTimer * 60);
             }
