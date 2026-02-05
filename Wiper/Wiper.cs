@@ -2,8 +2,10 @@
 using System.Collections.Generic;
 using System.IO;
 using Fougerite;
+using Fougerite.Caches;
 using Fougerite.Concurrent;
-using UnityEngine;
+using Fougerite.Events;
+using Fougerite.Permissions;
 
 namespace Wiper
 {
@@ -12,6 +14,7 @@ namespace Wiper
         public IniParser Settings;
         public IniParser WhiteList;
 
+        [Obsolete("This is not used anymore, it will be removed in future updates.", false)]
         public ConcurrentDictionary<ulong, DateTime> CollectedIDs = new ConcurrentDictionary<ulong, DateTime>();
         public Dictionary<string, float> EntityList = new Dictionary<string, float>(); 
         public List<ulong> WList = new List<ulong>(); 
@@ -22,9 +25,7 @@ namespace Wiper
         public int WipeCheckTimer = 30;
         public bool Broadcast = true;
         public string UserDataPath = "\\rust_server_Data\\userdata\\";
-        internal bool Check = false;
         private static Wiper _inst;
-        internal GameObject GameO;
 
         public override string Name
         {
@@ -43,7 +44,7 @@ namespace Wiper
 
         public override Version Version
         {
-            get { return new Version("1.1.3"); }
+            get { return new Version("1.2.0"); }
         }
 
         public static Wiper Instance
@@ -78,81 +79,45 @@ namespace Wiper
                 WhiteList.AddSetting("WhiteList", "1234212312312", "1");
                 WhiteList.Save();
             }
-            if (!File.Exists(Path.Combine(ModuleFolder, "Players.ini")))
-            {
-                File.Create(Path.Combine(ModuleFolder, "Players.ini")).Dispose();
-                Check = true;
-            }
-            else
-            {
-                IniParser players = new IniParser(Path.Combine(ModuleFolder, "Players.ini"));
-                string[] enumm = players.EnumSection("Objects");
-                if (enumm.Length > 0)
-                {
-                    foreach (string x in enumm)
-                    {
-                        try
-                        {
-                            ulong id = ulong.Parse(x);
-                            string date = players.GetSetting("Objects", x);
-                            // dd/MM/yyyy
-                            string[] spl = date.Split('/');
-                            CollectedIDs[id] = new DateTime(int.Parse(spl[2]), int.Parse(spl[1]), int.Parse(spl[0]));
-                        }
-                        catch (Exception ex)
-                        {
-                            Logger.LogError($"[Wiper] Failed to parse datetime for {x} Error: {ex}");
-                        }
-                    }
-                }
-                else
-                {
-                    Check = true;
-                }
-            }
+            
             ReloadConfig();
 
             LoadDecayList();
             Hooks.OnCommand += OnCommand;
-            Hooks.OnPlayerConnected += OnPlayerConnected;
-            Hooks.OnServerSaved += OnServerSaved;
-            Hooks.OnServerLoaded += OnServerLoaded;
-            GameO = new GameObject();
-            GameO.AddComponent<WiperHandler>();
-            UnityEngine.Object.DontDestroyOnLoad(GameO);
+
+            if (UseDecay)
+            {
+                CreateTimer("Decay", DecayTimer * 60 * 1000, DecayCallback, true);
+            }
+            if (UseDayLimit)
+            {
+                CreateTimer("WipeCheck", WipeCheckTimer * 60 * 1000, WipeCheckCallback, true);
+            }
         }
 
         public override void DeInitialize()
         {
-            if (GameO != null)
-            {
-                UnityEngine.Object.Destroy(GameO);
-                GameO = null;
-            }
-            Check = false;
+            KillTimers();
             Hooks.OnCommand -= OnCommand;
-            Hooks.OnPlayerConnected -= OnPlayerConnected;
-            Hooks.OnServerSaved -= OnServerSaved;
-            Hooks.OnServerLoaded -= OnServerLoaded;
         }
-        
-        public void OnServerLoaded()
+
+        private void DecayCallback(TimedEvent te)
         {
-            if (Check)
+            if (UseDecay)
             {
-                Logger.Log("[Wiper] Detecting Empty file... Cycling through all the objects and adding today's date to everyone.");
-                IniParser players = new IniParser(Path.Combine(ModuleFolder, "Players.ini"));
-                foreach (Entity x in World.GetWorld().Entities)
+                ForceDecay();
+            }
+        }
+
+        private void WipeCheckCallback(TimedEvent te)
+        {
+            if (UseDayLimit)
+            {
+                if (Broadcast)
                 {
-                    if (!CollectedIDs.ContainsKey(x.UOwnerID))
-                    {
-                        CollectedIDs[x.UOwnerID] = DateTime.Today;
-                        players.AddSetting("Objects", x.ToString(), CollectedIDs[x.UOwnerID].ToString("dd/MM/yyyy"));
-                    }
+                    Server.GetServer().BroadcastFrom("Wiper", "Server is checking for wipeable objects...");
                 }
-                players.Save();
-                
-                Logger.Log("[Wiper] Done.");
+                LaunchCheck();
             }
         }
 
@@ -222,21 +187,26 @@ namespace Wiper
         public void LaunchCheck(Fougerite.Player player = null)
         {
             List<Entity> data = World.GetWorld().Entities;
-            int[] array = new int[2];
-            array[0] = 0;
-            array[1] = 0;
+
+            int objects = 0;
+            int users = 0;
 
             List<ulong> Collected = new List<ulong>();
-            foreach (ulong x in CollectedIDs.Keys)
+            var cache = PlayerCache.GetPlayerCache().CachedPlayers;
+            foreach (var id in cache.Keys)
             {
-                if (WList.Contains(x))
+                if (WList.Contains(id))
                 {
                     continue;
                 }
 
-                if ((DateTime.Today - CollectedIDs[x]).TotalDays > MaxDays)
+                var date = cache[id].LastLogout;
+                if (date != null)
                 {
-                    Collected.Add(x);
+                    if ((DateTime.Now - date).Value.Days > MaxDays)
+                    {
+                        Collected.Add(id);
+                    }
                 }
             }
 
@@ -247,11 +217,6 @@ namespace Wiper
 
             foreach (ulong x in Collected)
             {
-                if (CollectedIDs.ContainsKey(x)) // Just to be sure
-                {
-                    CollectedIDs.TryRemove(x);
-                }
-
                 DirectoryInfo di = new DirectoryInfo($"{Util.GetRootFolder()}{UserDataPath}\\{x}");
                 if (di.Exists)
                 {
@@ -266,7 +231,7 @@ namespace Wiper
                     }
 
                     di.Delete();
-                    array[1] += 1;
+                    users += 1;
                 }
             }
 
@@ -275,38 +240,20 @@ namespace Wiper
                 if (Collected.Contains(x.UOwnerID))
                 {
                     x.Destroy();
-                    array[0] += 1;
+                    objects += 1;
                 }
             }
 
             if (Broadcast)
             {
                 Server.GetServer().BroadcastFrom("Wiper",
-                    $"Wiped {array[0]} amount of objects, and {array[1]} amount of user data.");
+                    $"Wiped {objects} amount of objects, and {users} amount of user data.");
             }
             else if (player != null)
             {
                 player.MessageFrom("Wiper",
-                    $"Wiped {array[0]} amount of objects, and {array[1]} amount of user data.");
+                    $"Wiped {objects} amount of objects, and {users} amount of user data.");
             }
-        }
-
-        public void OnServerSaved(int amount, double seconds)
-        {
-            Logger.LogDebug($"[Wiper] Saving Player Data. Count: {CollectedIDs.Keys.Count}");
-            File.WriteAllText(Path.Combine(ModuleFolder, "Players.ini"), string.Empty);
-            IniParser players = new IniParser(Path.Combine(ModuleFolder, "Players.ini"));
-            foreach (ulong x in CollectedIDs.Keys)
-            {
-                players.AddSetting("Objects", x.ToString(), CollectedIDs[x].ToString("dd/MM/yyyy"));
-            }
-            players.Save();
-            Logger.LogDebug("[Wiper] Save finished!");
-        }
-
-        public void OnPlayerConnected(Fougerite.Player player)
-        {
-            CollectedIDs[player.UID] = DateTime.Now;
         }
 
         public void OnCommand(Fougerite.Player player, string cmd, string[] args)
@@ -315,7 +262,7 @@ namespace Wiper
             {
                 case "wipehelp":
                 {
-                    if (player.Admin) // || player.Moderator ?
+                    if (player.Admin || PermissionSystem.GetPermissionSystem().PlayerHasPermission(player, "wiper.wipehelp"))
                     {
                         player.MessageFrom("Wiper", "Wiper Commands:");
                         player.MessageFrom("Wiper", "/wipecheck - Checks for inactive objects");
@@ -331,7 +278,7 @@ namespace Wiper
                 }
                 case "wipecheck":
                 {
-                    if (player.Admin)
+                    if (player.Admin || PermissionSystem.GetPermissionSystem().PlayerHasPermission(player, "wiper.wipecheck"))
                     {
                         if (Broadcast)
                         {
@@ -344,7 +291,7 @@ namespace Wiper
                 }
                 case "wipereload":
                 {
-                    if (player.Admin)
+                    if (player.Admin || PermissionSystem.GetPermissionSystem().PlayerHasPermission(player, "wiper.wipereload"))
                     {
                         bool b = ReloadConfig();
                         player.MessageFrom("Wiper", b ? "Done." : "Failed to reload config!");
@@ -354,7 +301,7 @@ namespace Wiper
                 }
                 case "wipeid":
                 {
-                    if (player.Admin)
+                    if (player.Admin || PermissionSystem.GetPermissionSystem().PlayerHasPermission(player, "wiper.wipeid"))
                     {
                         if (args.Length == 0)
                         {
@@ -369,11 +316,6 @@ namespace Wiper
                         {
                             player.MessageFrom("Wiper", "/wipeid playerid - Wipes All the objects of the ID");
                             return;
-                        }
-                        
-                        if (CollectedIDs.ContainsKey(uid))
-                        {
-                            CollectedIDs.TryRemove(uid);
                         }
                         
                         int c = 0;
@@ -406,7 +348,7 @@ namespace Wiper
                 }
                 case "wipebarr":
                 {
-                    if (player.Admin)
+                    if (player.Admin || PermissionSystem.GetPermissionSystem().PlayerHasPermission(player, "wiper.wipebarr"))
                     {
                         int c = 0;
                         foreach (Entity x in World.GetWorld().Entities)
@@ -424,7 +366,7 @@ namespace Wiper
                 }
                 case "wipecampf":
                 {
-                    if (player.Admin)
+                    if (player.Admin || PermissionSystem.GetPermissionSystem().PlayerHasPermission(player, "wiper.wipecampf"))
                     {
                         int c = 0;
                         foreach (Entity x in World.GetWorld().Entities)
@@ -442,7 +384,7 @@ namespace Wiper
                 }
                 case "wipewl":
                 {
-                    if (player.Admin)
+                    if (player.Admin || PermissionSystem.GetPermissionSystem().PlayerHasPermission(player, "wiper.wipewl"))
                     {
                         if (args.Length == 0)
                         {
@@ -474,7 +416,7 @@ namespace Wiper
                 }
                 case "wipeall":
                 {
-                    if (player.Admin)
+                    if (player.Admin || PermissionSystem.GetPermissionSystem().PlayerHasPermission(player, "wiper.wipeall"))
                     {
                         List<string> list = new List<string>();
                         int c = 0;
@@ -508,6 +450,15 @@ namespace Wiper
 
                     break;
                 }
+                case "wipeforced":
+                {
+                    if (player.Admin || PermissionSystem.GetPermissionSystem().PlayerHasPermission(player, "wiper.forcedecay"))
+                    {
+                        ForceDecay();
+                        player.MessageFrom("Wiper", "Forced decay cycle finished.");
+                    }
+                    break;
+                }
             }
         }
 
@@ -533,16 +484,6 @@ namespace Wiper
                 WhiteList.AddSetting("WhiteList", "1234212312312", "1");
                 WhiteList.Save();
             }
-            if (!File.Exists(Path.Combine(ModuleFolder, "Players.ini")))
-            {
-                File.Create(Path.Combine(ModuleFolder, "Players.ini")).Dispose();
-                CollectedIDs.Clear();
-                foreach (Fougerite.Player x in Server.GetServer().Players)
-                {
-                    CollectedIDs[x.UID] = DateTime.Today;
-                }
-            }
-
 
             Settings = new IniParser(Path.Combine(ModuleFolder, "Settings.ini"));
             try
@@ -564,6 +505,7 @@ namespace Wiper
 
 
             WhiteList = new IniParser(Path.Combine(ModuleFolder, "WhiteList.ini"));
+            WList.Clear();
             string[] enumm = WhiteList.EnumSection("WhiteList");
             if (enumm.Length > 0)
             {
@@ -581,6 +523,17 @@ namespace Wiper
                     }
                 }
             }
+
+            KillTimers();
+            if (UseDecay)
+            {
+                CreateTimer("Decay", DecayTimer * 60 * 1000, DecayCallback, true);
+            }
+            if (UseDayLimit)
+            {
+                CreateTimer("WipeCheck", WipeCheckTimer * 60 * 1000, WipeCheckCallback, true);
+            }
+
             return true;
         }
     }
