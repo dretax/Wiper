@@ -84,15 +84,6 @@ namespace Wiper
 
             LoadDecayList();
             Hooks.OnCommand += OnCommand;
-
-            if (UseDecay)
-            {
-                CreateTimer("Decay", DecayTimer * 60 * 1000, DecayCallback, true);
-            }
-            if (UseDayLimit)
-            {
-                CreateTimer("WipeCheck", WipeCheckTimer * 60 * 1000, WipeCheckCallback, true);
-            }
         }
 
         public override void DeInitialize()
@@ -527,11 +518,11 @@ namespace Wiper
             KillTimers();
             if (UseDecay)
             {
-                CreateTimer("Decay", DecayTimer * 60 * 1000, DecayCallback, true);
+                CreateTimer("Decay", DecayTimer * 60 * 1000, DecayCallback, true).Start();
             }
             if (UseDayLimit)
             {
-                CreateTimer("WipeCheck", WipeCheckTimer * 60 * 1000, WipeCheckCallback, true);
+                CreateTimer("WipeCheck", WipeCheckTimer * 60 * 1000, WipeCheckCallback, true).Start();
             }
 
             return true;
